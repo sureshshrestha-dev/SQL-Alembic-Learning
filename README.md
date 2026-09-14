@@ -1,188 +1,204 @@
-# SQL Alembic Learning
+# Multi-Tenant Django Learning Project
 
-This project is a simple example of using PostgreSQL + SQLAlchemy + Alembic to create tables, track schema changes, and apply migrations.
+This project is a Django learning app for a multi-tenant SaaS style system.
 
-It includes:
-- SQLAlchemy models in `models.py`
-- Alembic migration scripts in `alembic/versions/`
-- PostgreSQL database connection configured in `alembic.ini`
-- Example of creating tables and later altering them with Alembic
+The architecture is:
 
-## 1. Install dependencies
+- Tenant -> Department -> User -> Todo
+- Each tenant owns its own departments, users, and tasks
+- Users are restricted to their tenant
+- Roles control what a user is allowed to do
 
-Create a virtual environment and install the required packages:
+## Stack
+
+- Django
+- Django REST Framework
+- drf-spectacular
+- JWT authentication
+- SQLite for local development
+
+## Project structure
+
+```text
+config/
+  settings.py
+  urls.py
+
+tenants/
+  models.py
+  views.py
+  serializers.py
+  urls.py
+
+departments/
+  models.py
+  views.py
+  serializers.py
+  urls.py
+
+users/
+  models.py
+  views.py
+  serializers.py
+  urls.py
+
+todos/
+  models.py
+  views.py
+  serializers.py
+  urls.py
+```
+
+## Business rules
+
+### Tenant
+- A tenant is the top-level organization
+- Every user belongs to exactly one tenant
+- Every department belongs to exactly one tenant
+- Every todo belongs to exactly one tenant
+
+### Roles
+- Admin
+  - can manage the tenant
+  - can create departments
+  - can create users in the tenant
+  - can see all tenant data
+- Supervisor
+  - can manage only their own department
+  - can assign tasks inside that department
+- Agent
+  - can only see tasks assigned to themselves
+  - can only create tasks in their own department
+  - can only assign tasks to themselves
+
+## Local setup
 
 ```bash
+cd /home/personal/Desktop/learning/SQL-Alembic-Learning
 python -m venv .venv
 source .venv/bin/activate
 pip install -r req.txt
+python manage.py migrate
+python manage.py runserver
 ```
 
-If you are using `uv`, you can also install from the project metadata:
+If you want a superuser:
 
 ```bash
-uv sync
+python manage.py createsuperuser
 ```
 
-## 2. Install and start PostgreSQL
+## Swagger / API docs
 
-Make sure PostgreSQL is installed and running locally.
+The project includes Swagger via drf-spectacular.
 
-Create a database:
+Open:
+
+- http://127.0.0.1:8000/api/schema/
+- http://127.0.0.1:8000/swagger/
+
+## Core endpoints
+
+### Auth
 
 ```bash
-createdb mydatabase
+POST /register/
+POST /login/
+GET /me/
+POST /logout/
 ```
 
-Or with psql:
+Example register payload:
+
+```json
+{
+  "username": "admin1",
+  "email": "admin1@example.com",
+  "password": "secret123",
+  "role": "admin"
+}
+```
+
+Example login payload:
+
+```json
+{
+  "username": "admin1",
+  "password": "secret123"
+}
+```
+
+### Users
 
 ```bash
-psql -U postgres
-CREATE DATABASE mydatabase;
-\q
+GET /users/
+POST /users/
+GET /users/<id>/
+PUT /users/<id>/
+DELETE /users/<id>/
 ```
 
-## 3. Configure the database URL
+Only tenant admins can create/update users.
 
-Open `alembic.ini` and make sure the connection string matches your local PostgreSQL setup:
-
-```ini
-sqlalchemy.url = postgresql://postgres:postgres@localhost:5432/mydatabase
-```
-
-Update the username, password, host, port, and database name if needed.
-
-## 4. Create the first Alembic migration
-
-Your SQLAlchemy models are defined in `models.py`.
-
-The project is already configured to use `Base.metadata` in `alembic/env.py`, so Alembic can detect model changes.
-
-Generate the first migration script:
+### Departments
 
 ```bash
-alembic revision --autogenerate -m "initial migration"
+GET /departments/
+POST /departments/
+GET /departments/<id>/
+PUT /departments/<id>/
+DELETE /departments/<id>/
 ```
 
-This will create a migration file in `alembic/versions/` with the SQL commands to create the tables.
+Only tenant admins can create or modify departments.
 
-## 5. Apply the migration to the database
-
-To create the tables in PostgreSQL:
+### Todos
 
 ```bash
-alembic upgrade head
+GET /todos/
+POST /todos/
+GET /todos/<id>/
+PUT /todos/<id>/
+DELETE /todos/<id>/
 ```
 
-This runs the migration and creates the tables such as:
-- `users`
-- `posts`
-- `comments`
+Todo access is filtered by tenant and role.
 
-## 6. Check the database
+## Example todo payload
 
-You can verify the tables were created:
-
-```bash
-psql -U postgres -d mydatabase
-\dt
+```json
+{
+  "title": "Follow up with customer",
+  "description": "Check the invoice status",
+  "department": 1,
+  "assigned_to": 3,
+  "is_completed": false
+}
 ```
 
-You should see the tables created by Alembic.
+## Learning flow
 
-## 7. Make a change after the first migration
+1. Start with tenants
+2. Create departments inside a tenant
+3. Create users and assign them to a department
+4. Make tasks for a tenant and department
+5. Add role-based permission checks
+6. Test with Swagger and Django test cases
 
-When you modify your SQLAlchemy models in `models.py`, for example:
-- add a new column,
-- rename a column,
-- add a new table,
-- add a relationship or constraint,
+## Security pattern used in this project
 
-then generate a new migration:
+For every write route:
 
-```bash
-alembic revision --autogenerate -m "add user status field"
-```
+- require authentication
+- get the tenant from the logged-in user
+- reject tenant values that do not match the current user
+- validate department ownership
+- restrict actions based on role
 
-Then apply the change:
+This is the key idea behind a safe multi-tenant application.
 
-```bash
-alembic upgrade head
-```
+## Notes
 
-This is the normal workflow after schema changes.
+This project is intentionally built for learning and experimentation. It is not a production-ready SaaS system, but it demonstrates the right structure and common patterns used in real multi-tenant Django apps.
 
-## 8. Example workflow
-
-```bash
-# 1. edit models.py
-# 2. create migration
-alembic revision --autogenerate -m "add posts and comments tables"
-
-# 3. apply migration
-alembic upgrade head
-```
-
-## 9. Roll back a migration (optional)
-
-If needed, you can roll back to a previous revision:
-
-```bash
-alembic downgrade -1
-```
-
-Or go to a specific revision:
-
-```bash
-alembic downgrade <revision_id>
-```
-
-## 10. Project structure
-
-```text
-.
-├── alembic/
-│   ├── env.py
-│   ├── README
-│   ├── script.py.mako
-│   └── versions/
-├── alembic.ini
-├── models.py
-├── pyproject.toml
-├── req.txt
-└── README.md
-```
-
-## 11. Notes
-
-This example uses a local PostgreSQL database and the default Alembic setup:
-- `sqlalchemy.url` points to PostgreSQL
-- `target_metadata = Base.metadata` allows automatic migration generation
-- `alembic upgrade head` applies all pending migrations
-
-This is the basic pattern for a real-world database migration workflow.
-
-## 12. Common commands summary
-
-```bash
-# create migration
-alembic revision --autogenerate -m "describe change"
-
-# apply all pending migrations
-alembic upgrade head
-
-# view migration history
-alembic history
-
-# see current migration version
-alembic current
-
-# rollback one revision
-alembic downgrade -1
-```
-
-## Example model used in this project
-
-The project uses SQLAlchemy models with relationships between users, posts, and comments. You can add or update fields there and then generate a migration with Alembic.
-
-This is the standard workflow for a PostgreSQL + Alembic setup: define models, generate a revision, review the script, upgrade the database, and repeat after each schema change.
+The main goal is to understand how tenant isolation, department boundaries, user roles, and task ownership work together in a real backend API.
